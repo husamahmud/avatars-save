@@ -306,38 +306,9 @@ async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {
   try {
     console.log(`Attempting to fetch Instagram avatar for: ${username}`)
 
-    // Method 1: Try direct third-party services first (works in both dev and prod)
+    // Method 1: Try direct Instagram API with proper headers (best for actual profile pictures)
     try {
-      console.log("Method 1: Using reliable third-party services")
-      const services = [
-        `https://unavatar.io/instagram/${username}?fallback=false`,
-        `https://avatar.vercel.sh/instagram:${username}`
-      ]
-      
-      for (const service of services) {
-        try {
-          console.log(`Trying service: ${service}`)
-          const response = await fetch(service, { 
-            method: "HEAD",
-            cache: "no-store"
-          })
-          
-          if (response.ok && !response.url.includes('fallback')) {
-            console.log(`Found Instagram avatar via third-party service: ${service}`)
-            return { avatarUrl: service }
-          }
-        } catch (err) {
-          console.log(`Service ${service} failed: ${err}`)
-          // Continue to next service
-        }
-      }
-    } catch (e) {
-      console.error("Method 1 failed:", e)
-    }
-
-    // Method 2: Try direct Instagram API with proper headers (works better in dev)
-    try {
-      console.log("Method 2: Direct Instagram GraphQL API")
+      console.log("Method 1: Direct Instagram GraphQL API")
       
       // Try different variations of Instagram API endpoints
       const endpoints = [
@@ -387,37 +358,12 @@ async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {
         }
       }
     } catch (e) {
-      console.error("Method 2 failed:", e)
+      console.error("Method 1 failed:", e)
     }
 
-    // Method 3: Try our server-side proxy (works better in production)
+    // Method 2: Try direct fetch of the profile page for HTML scraping
     try {
-      console.log("Method 3: Using server-side proxy")
-      
-      try {
-        const response = await fetch(`/api/instagram-profile?username=${encodeURIComponent(username)}`, {
-          cache: "no-store"
-        })
-        
-        if (response.ok) {
-          const data = await response.json()
-          if (data.avatarUrl) {
-            console.log(`Found Instagram avatar via server proxy: ${data.avatarUrl}`)
-            return { avatarUrl: data.avatarUrl }
-          }
-        } else {
-          console.log(`Server proxy failed: ${response.status}`)
-        }
-      } catch (err) {
-        console.log(`Server proxy request failed: ${err}`)
-      }
-    } catch (e) {
-      console.error("Method 3 failed:", e)
-    }
-
-    // Method 4: Try direct fetch of the profile page
-    try {
-      console.log("Method 4: Direct HTML parsing")
+      console.log("Method 2: Direct HTML parsing")
       
       const response = await fetch(`https://www.instagram.com/${username}/`, {
         headers: {
@@ -432,7 +378,26 @@ async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {
       if (response.ok) {
         const html = await response.text()
         
-        // Try to find the image in the HTML
+        // First look for JSON data in the page
+        const jsonDataMatch = html.match(/<script type="text\/javascript">window\._sharedData = (.*?);<\/script>/)
+        if (jsonDataMatch && jsonDataMatch[1]) {
+          try {
+            const data = JSON.parse(jsonDataMatch[1])
+            const user = data?.entry_data?.ProfilePage?.[0]?.graphql?.user
+            
+            if (user?.profile_pic_url_hd) {
+              console.log(`Found Instagram HD avatar via JSON data: ${user.profile_pic_url_hd}`)
+              return { avatarUrl: user.profile_pic_url_hd }
+            } else if (user?.profile_pic_url) {
+              console.log(`Found Instagram standard avatar via JSON data: ${user.profile_pic_url}`)
+              return { avatarUrl: user.profile_pic_url }
+            }
+          } catch (e) {
+            console.error("JSON parsing failed:", e)
+          }
+        }
+        
+        // If JSON parsing fails, try regex patterns
         const patterns = [
           /<meta property="og:image" content="([^"]+)"/i,
           /"profile_pic_url_hd":"([^"]+)"/,
@@ -453,10 +418,92 @@ async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {
         }
       }
     } catch (e) {
+      console.error("Method 2 failed:", e)
+    }
+
+    // Method 3: Try our server-side proxy
+    try {
+      console.log("Method 3: Using server-side proxy")
+      
+      const response = await fetch(`/api/instagram-profile?username=${encodeURIComponent(username)}`, {
+        cache: "no-store"
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.avatarUrl) {
+          console.log(`Found Instagram avatar via server proxy: ${data.avatarUrl}`)
+          return { avatarUrl: data.avatarUrl }
+        }
+      } else {
+        console.log(`Server proxy failed: ${response.status}`)
+      }
+    } catch (e) {
+      console.error("Method 3 failed:", e)
+    }
+
+    // Method 4: Try unavatar.io service (can sometimes get actual profile pictures)
+    try {
+      console.log("Method 4: Using Instagram unavatar service")
+      
+      const service = `https://unavatar.io/instagram/${username}?fallback=false`
+      console.log(`Trying service: ${service}`)
+      
+      const response = await fetch(service, { 
+        method: "HEAD",
+        cache: "no-store"
+      })
+      
+      if (response.ok && !response.url.includes('fallback')) {
+        console.log(`Found Instagram avatar via unavatar service: ${service}`)
+        return { avatarUrl: service }
+      }
+    } catch (e) {
       console.error("Method 4 failed:", e)
     }
 
-    // Generate a distinctive avatar for this username
+    // Method 5: Try one last attempt with a specialized Instagram scraper approach
+    try {
+      console.log("Method 5: Specialized Instagram scraping")
+      
+      // Try the public mobile Instagram page which sometimes has a different structure
+      const response = await fetch(`https://www.instagram.com/${username}/`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Linux; Android 11; SM-G960U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.72 Mobile Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Sec-Fetch-Dest": "document"
+        },
+        cache: "no-store"
+      })
+      
+      if (response.ok) {
+        const html = await response.text()
+        
+        // Look for specific mobile Instagram patterns
+        const mobilePatterns = [
+          /"user":{"profile_pic_url":"([^"]+)"/,
+          /instagram:\/\/user\?username=[^"]+&profile_id=[^"]+">.*?src="([^"]+)"/,
+          /"owner":{"id":"[^"]+","profile_pic_url":"([^"]+)"/
+        ]
+        
+        for (const pattern of mobilePatterns) {
+          const match = html.match(pattern)
+          if (match && match[1]) {
+            const avatarUrl = match[1]
+              .replace(/\\u0026/g, "&")
+              .replace(/\\\//g, "/")
+              .replace(/\\/g, "")
+            console.log(`Found Instagram avatar via mobile scraping: ${avatarUrl}`)
+            return { avatarUrl }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Method 5 failed:", e)
+    }
+
+    // Generate a distinctive avatar for this username as a last resort
     console.log("All Instagram avatar methods failed, generating unique avatar")
     
     // Generate a unique hash for the username
