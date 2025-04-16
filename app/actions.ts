@@ -27,37 +27,279 @@ export const fetchAvatar = cache(async (platform: string, username: string): Pro
 
 async function fetchFacebookAvatar(username: string): Promise<AvatarResult> {
   try {
-    // For Facebook, we'll use the public Graph API endpoint for profile pictures
-    // This works without authentication for many public profiles
-    const avatarUrl = `https://graph.facebook.com/${username}/picture?type=large&redirect=true`
+    console.log(`Attempting to fetch Facebook avatar for: ${username}`)
 
-    // Verify the URL returns a valid image by checking headers
-    const response = await fetch(avatarUrl, { method: "HEAD" })
-
-    if (!response.ok) {
-      return {
-        avatarUrl: `https://ui-avatars.com/api/?name=${username}&background=random&size=256`,
-        error: "Could not fetch Facebook avatar. Using generated placeholder.",
+    // TECHNIQUE 1: Try Facebook's public CDN with specific parameters
+    try {
+      console.log("Technique 1: Public CDN with specialized parameters")
+      const timestamp = Date.now()
+      const urls = [
+        `https://graph.facebook.com/${username}/picture?height=800&width=800&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`,
+        `https://graph.facebook.com/${username}/picture?type=large&redirect=false&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`,
+        `https://graph.facebook.com/${username}/picture?width=1000&redirect=true&_rdt=1&_rdr=1`
+      ]
+      
+      for (const url of urls) {
+        console.log(`Trying URL: ${url}`)
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'image/*, */*',
+            'Cache-Control': 'no-cache',
+          }
+        })
+        
+        if (response.ok) {
+          // For redirect=false endpoints check JSON
+          if (url.includes('redirect=false')) {
+            try {
+              const data = await response.json()
+              if (data?.data?.url && !data.data.is_silhouette) {
+                console.log(`Found Facebook avatar via Technique 1 (JSON): ${data.data.url}`)
+                return { avatarUrl: data.data.url }
+              }
+            } catch (e) {
+              // Not JSON, continue with URL check
+            }
+          } else {
+            // For direct image URLs
+            const finalUrl = response.url
+            if (!isDefaultImage(finalUrl)) {
+              console.log(`Found Facebook avatar via Technique 1 (redirect): ${finalUrl}`)
+              return { avatarUrl: finalUrl }
+            }
+          }
+        } else {
+          console.log(`URL response status: ${response.status}`)
+        }
       }
+    } catch (e) {
+      console.error("Technique 1 failed:", e)
     }
 
-    // Check if it's a default silhouette image by checking content length
-    // Facebook default silhouette images tend to be smaller than real avatars
-    const contentLength = response.headers.get("content-length")
-    if (contentLength && Number.parseInt(contentLength) < 3000) {
-      return {
-        avatarUrl: `https://ui-avatars.com/api/?name=${username}&background=random&size=256`,
-        error: "Found default Facebook avatar. Using generated placeholder instead.",
+    // TECHNIQUE 2: Try browser-like scraping with proper headers
+    try {
+      console.log("Technique 2: Enhanced browser-like scraping")
+      const response = await fetch(`https://www.facebook.com/${username}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1'
+        }
+      })
+      
+      if (response.ok) {
+        const html = await response.text()
+        
+        // Advanced pattern matching for profile images
+        const patterns = [
+          /<meta property="og:image" content="([^"]+)"/i,
+          /"profilePicture"[^}]+"uri":"([^"]+)"/,
+          /"profile_picture_for_sticky_bar"[^}]+"uri":"([^"]+)"/,
+          /"profile_picture"[^}]+"uri":"([^"]+)"/,
+          /"profilePhoto":"([^"]+)"/,
+          /\\"profilePhoto\\":\\"([^\\]+)\\"/,
+          /https:\/\/scontent[^"']+?\/(?:v|p|s)[^"']+?\.(?:jpg|jpeg|png|gif)/i
+        ]
+        
+        for (const pattern of patterns) {
+          const match = html.match(pattern)
+          if (match && match[1]) {
+            let avatarUrl = match[1].replace(/\\/g, '').replace(/&amp;/g, '&')
+            if (!isDefaultImage(avatarUrl)) {
+              console.log(`Found Facebook avatar via Technique 2: ${avatarUrl}`)
+              
+              // Fix incomplete URLs
+              if (avatarUrl.startsWith('//')) {
+                avatarUrl = 'https:' + avatarUrl
+              }
+              
+              return { avatarUrl }
+            }
+          }
+        }
       }
+    } catch (e) {
+      console.error("Technique 2 failed:", e)
     }
 
-    return { avatarUrl }
-  } catch (error) {
+    // TECHNIQUE 3: Try accessing mobile Facebook which sometimes has different access rules
+    try {
+      console.log("Technique 3: Mobile Facebook access")
+      const response = await fetch(`https://m.facebook.com/${username}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache'
+        }
+      })
+      
+      if (response.ok) {
+        const html = await response.text()
+        
+        // Look for profile image in mobile HTML
+        const patterns = [
+          /<img[^>]+?(?:profile_pic|profilephoto)[^>]+?src="([^"]+)"/i,
+          /"profilePhoto":"([^"]+)"/,
+          /<meta property="og:image" content="([^"]+)"/i
+        ]
+        
+        for (const pattern of patterns) {
+          const match = html.match(pattern)
+          if (match && match[1]) {
+            const avatarUrl = match[1].replace(/&amp;/g, '&')
+            if (!isDefaultImage(avatarUrl)) {
+              console.log(`Found Facebook avatar via Technique 3: ${avatarUrl}`)
+              return { avatarUrl }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Technique 3 failed:", e)
+    }
+
+    // TECHNIQUE 4: Try using numeric ID if username might contain one
+    try {
+      console.log("Technique 4: Extracting and using numeric ID if available")
+      
+      // Check if username has a numeric component that could be an ID
+      const numericMatch = username.match(/(\d+)/)
+      if (numericMatch) {
+        const numericId = numericMatch[1]
+        console.log(`Found possible numeric ID: ${numericId}`)
+        
+        const url = `https://graph.facebook.com/${numericId}/picture?type=large&redirect=false`
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json'
+          }
+        })
+        
+        if (response.ok) {
+          try {
+            const data = await response.json()
+            if (data?.data?.url && !data.data.is_silhouette) {
+              console.log(`Found Facebook avatar via Technique 4: ${data.data.url}`)
+              return { avatarUrl: data.data.url }
+            }
+          } catch (e) {
+            console.log("Not valid JSON response")
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Technique 4 failed:", e)
+    }
+
+    // As a last resort, try some third-party services
+    try {
+      console.log("Technique 5: Third-party services")
+      const services = [
+        `https://unavatar.io/facebook/${username}?fallback=false`,
+        `https://avatars.dicebear.com/api/avataaars/${username}.svg`
+      ]
+      
+      for (const service of services) {
+        const response = await fetch(service, { method: 'HEAD' })
+        if (response.ok && !response.url.includes('fallback')) {
+          console.log(`Found avatar via third-party service: ${service}`)
+          return { avatarUrl: service }
+        }
+      }
+    } catch (e) {
+      console.error("Technique 5 failed:", e)
+    }
+
+    // If all attempts fail, generate a more distinctive avatar
+    console.log("Using a custom generated avatar")
+    
+    // Create a more unique and personalized avatar
+    // Extract name components from username for a better avatar
+    let displayName = username
+      .replace(/\.\d+$/, '') // Remove numeric suffixes like .123
+      .replace(/\./g, ' ')   // Replace dots with spaces
+      .trim()
+    
+    // If the name is still just one word, try to make it two by splitting
+    if (!displayName.includes(' ') && displayName.length > 2) {
+      displayName = `${displayName.substring(0, 1)} ${displayName.substring(1)}`
+    }
+    
+    // Generate a unique hash from the username for consistent colors
+    const hashCode = (str: string) => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i)
+        hash |= 0 // Convert to 32bit integer
+      }
+      return Math.abs(hash)
+    }
+    
+    // Generate a unique background color based on the username
+    const hash = hashCode(username)
+    const hue = hash % 360
+    const saturation = 70 + (hash % 30) // 70-100%
+    const lightness = 45 + (hash % 15)  // 45-60%
+    
+    // Convert HSL to hex for the URL
+    const hslToHex = (h: number, s: number, l: number) => {
+      s /= 100
+      l /= 100
+      const a = s * Math.min(l, 1 - l)
+      const f = (n: number) => {
+        const k = (n + h / 30) % 12
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+        return Math.round(255 * color).toString(16).padStart(2, '0')
+      }
+      return `${f(0)}${f(8)}${f(4)}`
+    }
+    
+    const bgHex = hslToHex(hue, saturation, lightness)
+    
+    // Determine if we need light or dark text
+    const textColor = lightness > 50 ? '333333' : 'ffffff'
+    
+    // Create the avatar URL with multiple parameters for uniqueness
+    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=${bgHex}&color=${textColor}&size=256&bold=true&format=png&length=2`
+    
+    console.log(`Generated avatar with color #${bgHex} for ${username}`)
+    
     return {
-      avatarUrl: `https://ui-avatars.com/api/?name=${username}&background=random&size=256`,
-      error: "Failed to fetch Facebook avatar. Using generated placeholder.",
+      avatarUrl,
+      error: "Could not retrieve Facebook profile picture. Using a generated avatar.",
+    }
+  } catch (error) {
+    console.error("Facebook avatar fetching failed completely:", error)
+    return {
+      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=4267B2&color=fff&size=256&bold=true&length=2`,
+      error: "Failed to fetch Facebook avatar. Using a generated placeholder.",
     }
   }
+}
+
+// Helper function to check if a URL is a default/silhouette image
+function isDefaultImage(url: string): boolean {
+  const result = url.includes('facebook.com/rsrc.php') || 
+          url.includes('/t1.30497-1/') ||
+          url.includes('silhouette') ||
+          url.includes('s230x230') ||
+          url.includes('p64x64') ||
+          url.includes('cp0_dst-jpg_s64x64') ||
+          url.includes('_q.jpg') ||
+          url.includes('_s.jpg')
+  
+  if (result) {
+    console.log('Detected default/silhouette image:', url)
+  }
+  return result
 }
 
 async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {

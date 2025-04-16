@@ -1,14 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, KeyboardEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Download, Search, User } from "lucide-react"
+import { Download, Search, User, ExternalLink, KeyRound } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import Image from "next/image"
 import { fetchAvatar } from "@/app/actions"
+import Link from "next/link"
 
 interface PlatformPattern {
   id: string
@@ -21,10 +22,29 @@ const platformPatterns: PlatformPattern[] = [
   {
     id: "facebook",
     name: "Facebook",
-    urlPattern: /(?:https?:\/\/)?(?:www\.)?(facebook\.com|fb\.com)\/([^/?]+)/i,
+    urlPattern: /(?:https?:\/\/)?(?:www\.|m\.)?(?:facebook\.com|fb\.com)\/([^?&/]+)/i,
     extractUsername: (url: string) => {
-      const match = url.match(/(?:https?:\/\/)?(?:www\.)?(facebook\.com|fb\.com)\/([^/?]+)/i)
-      return match ? match[2] : null
+      // First try to get the ID from profile.php?id=
+      const idMatch = url.match(/[?&]id=(\d+)/)
+      if (idMatch) {
+        return idMatch[1]
+      }
+
+      // Try to extract from /profile/[id] format
+      const profileMatch = url.match(/\/profile\/(\d+)/)
+      if (profileMatch) {
+        return profileMatch[1]
+      }
+
+      // Handle vanity URLs with usernames
+      const match = url.match(/(?:https?:\/\/)?(?:www\.|m\.)?(?:facebook\.com|fb\.com)\/([^?&/]+)/i)
+      if (!match) return null
+      
+      // Get the raw username/ID part and preserve it exactly as is
+      const username = match[1]
+      
+      // Remove any @ symbol at the beginning
+      return username.startsWith('@') ? username.substring(1) : username
     },
   },
   {
@@ -54,6 +74,30 @@ export default function AvatarDownloaderPage() {
   const [error, setError] = useState<string | null>(null)
   const [detectedPlatform, setDetectedPlatform] = useState<string | null>(null)
   const [extractedUsername, setExtractedUsername] = useState<string | null>(null)
+
+  // Handle keyboard shortcuts
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !loading) {
+      handleExtractAndFetch()
+    }
+  }
+
+  // Add global keyboard shortcuts
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      // 'D' key for download when available
+      if (e.key === 'd' || e.key === 'D') {
+        if (avatarUrl && !loading) {
+          downloadAvatar()
+        }
+      }
+    }
+    
+    window.addEventListener('keydown', handleGlobalKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown)
+    }
+  }, [avatarUrl, loading]) // Dependencies ensure this reruns when needed
 
   const handleExtractAndFetch = async () => {
     if (!profileUrl.trim()) {
@@ -286,73 +330,130 @@ export default function AvatarDownloaderPage() {
   }
 
   return (
-    <div className="container mx-auto py-10 px-4">
-      <Card className="max-w-md mx-auto">
-        <CardHeader>
-          <CardTitle className="text-2xl">Social Media Avatar Downloader</CardTitle>
-          <CardDescription>
-            Enter any Facebook, Instagram, or Twitter profile link to download the avatar.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://instagram.com/username or https://twitter.com/username"
-                value={profileUrl}
-                onChange={(e) => setProfileUrl(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleExtractAndFetch}
-                disabled={loading}
-                className="shrink-0"
-                aria-label="Search for avatar"
-              >
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-            {detectedPlatform && extractedUsername && (
-              <p className="text-sm text-muted-foreground mt-1">
-                Detected: <span className="font-medium">{detectedPlatform}</span> profile for{" "}
-                <span className="font-medium">{extractedUsername}</span>
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col items-center justify-center pt-4">
-            {loading ? (
-              <div className="h-32 w-32 rounded-full bg-gray-100 flex items-center justify-center">
-                <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full"></div>
-              </div>
-            ) : avatarUrl ? (
-              <div className="relative h-32 w-32">
-                <Image
-                  src={avatarUrl.includes('fbcdn.net') ? `/api/proxy-image?url=${encodeURIComponent(avatarUrl)}` : avatarUrl}
-                  alt="User avatar"
-                  fill
-                  className="rounded-full object-cover"
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-violet-950 text-white flex items-center justify-center">
+      <div className="container py-10 px-4">
+        <Card className="max-w-md mx-auto bg-gray-800/70 border-0 shadow-xl backdrop-blur-sm text-white">
+          <CardHeader className="border-b border-gray-700">
+            <CardTitle className="text-2xl bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent font-bold">Social Media Avatar Downloader</CardTitle>
+            <CardDescription className="text-gray-300">
+              Enter any Facebook, Instagram, or Twitter profile link to download the avatar.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6 pt-6">
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://facebook.com/username or https://instagram.com/username"
+                  value={profileUrl}
+                  onChange={(e) => setProfileUrl(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1 bg-gray-700 border-gray-600 text-white placeholder:text-gray-400 focus-visible:ring-purple-500"
+                  aria-label="Enter social media profile URL"
                 />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleExtractAndFetch}
+                  disabled={loading}
+                  className="shrink-0 bg-gray-700 border-gray-600 hover:bg-gray-600 hover:text-purple-300"
+                  aria-label="Search for avatar"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
               </div>
-            ) : (
-              <div className="h-32 w-32 rounded-full bg-gray-100 flex items-center justify-center">
-                <User className="h-12 w-12 text-gray-400" />
+              
+              {/* Keyboard shortcut indicator */}
+              <div className="flex justify-end mt-1">
+                <div className="text-xs text-gray-400 flex items-center">
+                  <span className="mr-1">Press</span>
+                  <kbd className="px-2 py-1 bg-gray-700 rounded-md border border-gray-600 text-gray-300 text-xs font-mono">Enter</kbd>
+                  <span className="ml-1">to search</span>
+                </div>
               </div>
-            )}
 
-            {error && <p className="text-destructive text-sm mt-2">{error}</p>}
-          </div>
-        </CardContent>
+              {detectedPlatform && extractedUsername && (
+                <p className="text-sm text-gray-300 mt-1">
+                  Detected: <span className="font-medium text-purple-300">{detectedPlatform}</span> profile for{" "}
+                  <span className="font-medium text-purple-300">{extractedUsername}</span>
+                </p>
+              )}
+            </div>
 
-        <CardFooter>
-          <Button className="w-full" onClick={downloadAvatar} disabled={!avatarUrl || loading}>
-            <Download className="mr-2 h-4 w-4" /> Download Avatar
-          </Button>
-        </CardFooter>
-      </Card>
-      <Toaster />
+            <div className="flex flex-col items-center justify-center pt-4">
+              {loading ? (
+                <div className="h-32 w-32 rounded-full bg-gray-700 flex items-center justify-center">
+                  <div className="animate-spin h-8 w-8 border-4 border-purple-500 border-t-transparent rounded-full"></div>
+                </div>
+              ) : avatarUrl ? (
+                <div className="relative h-32 w-32 ring-4 ring-purple-500 rounded-full overflow-hidden">
+                  <Image
+                    src={
+                      // Use proxy-image for Facebook and Instagram CDN images
+                      (avatarUrl?.includes('fbcdn') || 
+                       avatarUrl?.includes('fb.com') || 
+                       avatarUrl?.includes('facebook.com') ||
+                       avatarUrl?.includes('cdninstagram') ||
+                       avatarUrl?.includes('instagram.com'))
+                        ? `/api/proxy-image?url=${encodeURIComponent(avatarUrl)}`
+                        : avatarUrl
+                    }
+                    alt="User avatar"
+                    fill
+                    className="rounded-full object-cover"
+                    sizes="(max-width: 768px) 100vw, 128px"
+                    priority
+                  />
+                </div>
+              ) : (
+                <div className="h-32 w-32 rounded-full bg-gray-700 flex items-center justify-center">
+                  <User className="h-12 w-12 text-gray-500" />
+                </div>
+              )}
+
+              {error && <p className="text-red-400 text-sm mt-2 text-center">{error}</p>}
+            </div>
+          </CardContent>
+
+          <CardFooter className="border-t border-gray-700 pt-4">
+            <div className="w-full">
+              <Button 
+                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white" 
+                onClick={downloadAvatar} 
+                disabled={!avatarUrl || loading}
+              >
+                <Download className="mr-2 h-4 w-4" /> Download Avatar
+              </Button>
+              
+              {/* Keyboard shortcuts for download */}
+              {avatarUrl && !loading && (
+                <div className="flex justify-center mt-2">
+                  <div className="text-xs text-gray-400 flex items-center">
+                    <span className="mr-1">Or press</span>
+                    <kbd className="px-2 py-1 bg-gray-700 rounded-md border border-gray-600 text-gray-300 text-xs font-mono">D</kbd>
+                    <span className="ml-1">to download</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardFooter>
+        </Card>
+        
+        {/* Footer with credit */}
+        <footer className="max-w-md mx-auto mt-6 text-center text-gray-300 text-sm">
+          <p className="mb-2 flex items-center justify-center">
+            <span className="mr-1">Built with ❤️ by</span>
+            <Link href="https://www.husam.ninja" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center text-purple-300 hover:text-purple-200 transition-colors"
+            >
+              Hüsam
+              <ExternalLink className="ml-1 h-3 w-3" />
+            </Link>
+          </p>
+        </footer>
+        <Toaster />
+      </div>
     </div>
   )
 }
