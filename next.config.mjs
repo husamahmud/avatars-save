@@ -21,6 +21,23 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.fbcdn.net',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'instagram.com',
+        pathname: '**',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.instagram.com',
+        pathname: '**',
+      }
+    ],
   },
   experimental: {
     webpackBuildWorker: true,

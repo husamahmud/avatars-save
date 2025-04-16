@@ -330,7 +330,7 @@ export default function AvatarDownloaderPage() {
             ) : avatarUrl ? (
               <div className="relative h-32 w-32">
                 <Image
-                  src={avatarUrl || "/placeholder.svg"}
+                  src={avatarUrl.includes('fbcdn.net') ? `/api/proxy-image?url=${encodeURIComponent(avatarUrl)}` : avatarUrl}
                   alt="User avatar"
                   fill
                   className="rounded-full object-cover"
