@@ -306,136 +306,172 @@ async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {
   try {
     console.log(`Attempting to fetch Instagram avatar for: ${username}`)
 
-    // Method 1: Try the updated Instagram avatar service from unavatar.io
+    // TECHNIQUE 1: Try using third-party services
     try {
-      console.log("Trying Method 1: Updated Instagram avatar service (unavatar)")
-      // Use the latest endpoint with forced refresh parameter
-      const avatarUrl = `https://unavatar.io/instagram/${username}?fallback=false&cache=no-store`
-
-      // Verify the URL returns a valid image
-      const response = await fetch(avatarUrl, { 
-        method: "HEAD",
-        headers: {
-          "Cache-Control": "no-cache",
-          "Pragma": "no-cache"
-        },
-        next: { revalidate: 0 } // Ensure no Next.js caching
-      })
-
-      if (response.ok) {
-        console.log(`Found Instagram avatar via Method 1: ${avatarUrl}`)
-        return { avatarUrl }
-      } else {
-        console.log(`Instagram avatar service failed: ${response.status}`)
-      }
-    } catch (e) {
-      console.error("Method 1 failed:", e)
-    }
-
-    // Method 2: Try using Proxied Instagram GraphQL API
-    try {
-      console.log("Trying Method 2: Proxied Instagram GraphQL API")
-      
-      // Use a specialized endpoint for Instagram profile data
-      const response = await fetch(`https://i.instagram.com/api/v1/users/web_profile_info/?username=${username}`, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.9999.999 Safari/537.36",
-          "Accept": "application/json",
-          "X-IG-App-ID": "936619743392459", // Public Instagram Web App ID
-          "X-Requested-With": "XMLHttpRequest",
-          "Sec-Fetch-Site": "same-site",
-          "Sec-Fetch-Mode": "cors",
-          "Referer": "https://www.instagram.com/",
-          "Origin": "https://www.instagram.com"
-        },
-        next: { revalidate: 0 }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data?.data?.user?.profile_pic_url_hd) {
-          const avatarUrl = data.data.user.profile_pic_url_hd;
-          console.log(`Found Instagram avatar via Method 2: ${avatarUrl}`);
-          return { avatarUrl };
-        } else if (data?.data?.user?.profile_pic_url) {
-          const avatarUrl = data.data.user.profile_pic_url;
-          console.log(`Found Instagram avatar via Method 2 (standard res): ${avatarUrl}`);
-          return { avatarUrl };
-        }
-      } else {
-        console.log(`Instagram GraphQL API failed: ${response.status}`);
-      }
-    } catch (e) {
-      console.error("Method 2 failed:", e);
-    }
-    
-    // Method 3: Use avatar.vercel.sh (always returns an image)
-    try {
-      console.log("Trying Method 3: Reliable avatar generator service")
-      // This service always returns an image
-      const avatarUrl = `https://avatar.vercel.sh/instagram:${username}`
-      console.log(`Using Instagram avatar via Method 3: ${avatarUrl}`)
-      return { avatarUrl }
-    } catch (e) {
-      console.error("Method 3 failed:", e)
-    }
-
-    // Method 4: Try improved HTML parsing with more accurate selector targeting
-    try {
-      console.log("Trying Method 4: Enhanced Instagram profile HTML parsing")
-      const response = await fetch(`https://www.instagram.com/${username}/`, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Cache-Control": "no-cache",
-          "Pragma": "no-cache"
-        },
-        next: { revalidate: 0 }
-      })
-
-      if (!response.ok) {
-        console.log(`Instagram profile not accessible: ${response.status}`)
-        throw new Error("Instagram profile not accessible")
-      }
-
-      const html = await response.text()
-
-      // More comprehensive regex patterns to find profile images
-      const patterns = [
-        /"profile_pic_url_hd":"([^"]+)"/,
-        /"profile_pic_url":"([^"]+)"/,
-        /profilePicture[^}]+"uri":"([^"]+)"/,
-        /profile_pic_url\\?":\\?"([^"\\]+)/
+      console.log("Technique 1: Using reliable third-party services")
+      const services = [
+        `https://unavatar.io/instagram/${username}?fallback=false&cache=no-store`,
+        `https://avatar.vercel.sh/instagram:${username}?size=1024`,
+        `https://ui-avatars.com/api/?name=${username}&color=fff&background=E1306C&size=512&bold=true`
       ]
       
-      for (const pattern of patterns) {
-        const match = html.match(pattern)
-        if (match && match[1]) {
-          const avatarUrl = match[1]
-            .replace(/\\u0026/g, "&")
-            .replace(/\\\//g, "/")
-            .replace(/\\/g, "")
-          console.log(`Found Instagram avatar via Method 4 with pattern: ${pattern}`)
-          return { avatarUrl }
+      for (const service of services) {
+        try {
+          console.log(`Trying service: ${service}`)
+          const response = await fetch(service, { 
+            method: "HEAD",
+            headers: {
+              "Cache-Control": "no-cache",
+              "Pragma": "no-cache"
+            },
+            next: { revalidate: 0 }
+          })
+          
+          if (response.ok && !service.includes('ui-avatars') && !response.url.includes('fallback')) {
+            console.log(`Found Instagram avatar via third-party service: ${service}`)
+            return { avatarUrl: service }
+          }
+        } catch (err) {
+          console.log(`Service ${service} failed: ${err}`)
+          // Continue to next service
         }
       }
-      
-      console.log("No profile image match found in Instagram HTML")
     } catch (e) {
-      console.error("Method 4 failed:", e)
+      console.error("Technique 1 failed:", e)
     }
 
-    // Fallback to a more sophisticated generated avatar
-    console.log("All Instagram avatar methods failed, using improved generated placeholder")
+    // TECHNIQUE 2: Try our server-side proxy to Instagram web
+    try {
+      console.log("Technique 2: Using server-side proxy to Instagram")
+      
+      // Create a serverless function to make this request if doesn't exist yet
+      const response = await fetch(`/api/instagram-profile?username=${encodeURIComponent(username)}`, {
+        headers: {
+          "Accept": "application/json",
+          "Cache-Control": "no-cache"
+        },
+        next: { revalidate: 0 }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.avatarUrl) {
+          console.log(`Found Instagram avatar via server proxy: ${data.avatarUrl}`)
+          return { avatarUrl: data.avatarUrl }
+        }
+      }
+    } catch (e) {
+      console.error("Technique 2 failed:", e)
+    }
+
+    // TECHNIQUE 3: Try direct fetch with improved headers
+    try {
+      console.log("Technique 3: Direct fetch with improved headers")
+      
+      const response = await fetch(`https://www.instagram.com/${username}/`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.3 Mobile/15E148 Safari/604.1",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.5",
+          "Referer": "https://www.instagram.com/",
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
+          "Sec-Fetch-Site": "same-origin"
+        }
+      })
+      
+      if (response.ok) {
+        const html = await response.text()
+        
+        // First try to extract the JSON data that Instagram loads
+        const jsonDataMatch = html.match(/<script type="text\/javascript">window\._sharedData = (.*?);<\/script>/)
+        if (jsonDataMatch && jsonDataMatch[1]) {
+          try {
+            const data = JSON.parse(jsonDataMatch[1])
+            const user = data?.entry_data?.ProfilePage?.[0]?.graphql?.user
+            
+            if (user?.profile_pic_url_hd) {
+              console.log(`Found Instagram HD avatar via JSON data: ${user.profile_pic_url_hd}`)
+              return { avatarUrl: user.profile_pic_url_hd }
+            } else if (user?.profile_pic_url) {
+              console.log(`Found Instagram standard avatar via JSON data: ${user.profile_pic_url}`)
+              return { avatarUrl: user.profile_pic_url }
+            }
+          } catch (e) {
+            console.error("JSON parsing failed:", e)
+          }
+        }
+        
+        // If JSON method fails, try regex patterns
+        const patterns = [
+          /"profile_pic_url_hd":"([^"]+)"/,
+          /"profile_pic_url":"([^"]+)"/,
+          /profilePicture[^}]+"uri":"([^"]+)"/,
+          /<meta property="og:image" content="([^"]+)"/i,
+          /profile_pic_url\\?":\\?"([^"\\]+)/
+        ]
+        
+        for (const pattern of patterns) {
+          const match = html.match(pattern)
+          if (match && match[1]) {
+            const avatarUrl = match[1]
+              .replace(/\\u0026/g, "&")
+              .replace(/\\\//g, "/")
+              .replace(/\\/g, "")
+            console.log(`Found Instagram avatar via regex pattern: ${avatarUrl}`)
+            return { avatarUrl }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Technique 3 failed:", e)
+    }
+
+    // TECHNIQUE 4: Generate a distinctive avatar for this username
+    console.log("All Instagram avatar techniques failed, generating unique avatar")
+    
+    // Generate a unique hash for the username
+    const hashCode = (str: string) => {
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i)
+        hash |= 0 // Convert to 32bit integer
+      }
+      return Math.abs(hash)
+    }
+    
+    // Instagram colors with slight variations based on username
+    const hash = hashCode(username)
+    const hue = 330 + (hash % 30) // Pink to purple range (Instagram colors)
+    const saturation = 80 + (hash % 20)
+    const lightness = 50 + (hash % 15)
+    
+    // Convert HSL to hex
+    const hslToHex = (h: number, s: number, l: number) => {
+      s /= 100
+      l /= 100
+      const a = s * Math.min(l, 1 - l)
+      const f = (n: number) => {
+        const k = (n + h / 30) % 12
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+        return Math.round(255 * color).toString(16).padStart(2, '0')
+      }
+      return `${f(0)}${f(8)}${f(4)}`
+    }
+    
+    const bgHex = hslToHex(hue, saturation, lightness)
+    
+    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=${bgHex}&color=ffffff&size=256&bold=true&length=2`
+    
+    console.log(`Generated unique Instagram-themed avatar: ${avatarUrl}`)
     return {
-      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=e9f75a&color=333&size=256&bold=true&length=2`,
+      avatarUrl,
       error: "Could not fetch Instagram avatar. Using generated placeholder.",
     }
   } catch (error) {
     console.error("Instagram avatar fetching failed completely:", error)
     return {
-      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=e9f75a&color=333&size=256&bold=true&length=2`,
+      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=E1306C&color=fff&size=256&bold=true&length=2`,
       error: "Failed to fetch Instagram avatar. Using generated placeholder.",
     }
   }
