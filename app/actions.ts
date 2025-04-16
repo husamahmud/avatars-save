@@ -425,7 +425,20 @@ async function fetchInstagramAvatar(username: string): Promise<AvatarResult> {
     try {
       console.log("Method 3: Using server-side proxy")
       
-      const response = await fetch(`/api/instagram-profile?username=${encodeURIComponent(username)}`, {
+      // Get the base URL for proper absolute URL construction
+      // This ensures it works in both development and production
+      const baseUrl = typeof window !== 'undefined' 
+        ? window.location.origin 
+        : process.env.NEXT_PUBLIC_VERCEL_URL 
+          ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+          : 'http://localhost:3000';
+          
+      const proxyUrl = new URL(`/api/instagram-profile`, baseUrl);
+      proxyUrl.searchParams.append('username', username);
+      
+      console.log(`Making request to proxy URL: ${proxyUrl.toString()}`);
+      
+      const response = await fetch(proxyUrl.toString(), {
         cache: "no-store"
       })
       

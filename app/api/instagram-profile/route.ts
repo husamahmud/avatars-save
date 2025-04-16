@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export const runtime = 'edge'
+// Set runtime to nodejs instead of edge for better compatibility
+export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
     // Get the username from query params
-    const username = request.nextUrl.searchParams.get('username')
+    const { searchParams } = new URL(request.url)
+    const username = searchParams.get('username')
     
     if (!username) {
       return NextResponse.json(
@@ -27,7 +29,8 @@ export async function GET(request: NextRequest) {
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'same-origin',
         'Cache-Control': 'no-store'
-      }
+      },
+      cache: 'no-store'
     })
 
     if (!response.ok) {
@@ -87,7 +90,8 @@ export async function GET(request: NextRequest) {
           'X-Requested-With': 'XMLHttpRequest',
           'Referer': 'https://www.instagram.com/',
           'Origin': 'https://www.instagram.com'
-        }
+        },
+        cache: 'no-store'
       })
       
       if (alternateResponse.ok) {
@@ -110,7 +114,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Instagram profile proxy error:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
